@@ -1,0 +1,2 @@
+Virtual Environment Name: pydantic-agent (conda, Python 3.11)
+Activate with: conda activate pydantic-agent
