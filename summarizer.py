@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from pydantic import ValidationError
 from llama_cpp import Llama
+from json_repair import repair_json
 from models import DirectoryReport, LLMSummary
 
 # Path to the GGUF model — sits alongside this file
@@ -11,7 +12,7 @@ _MODEL_PATH = str(Path(__file__).parent / "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 print(f"Loading local model: {_MODEL_PATH} ...")
 llm = Llama(
     model_path=_MODEL_PATH,
-    n_ctx=4096,
+    n_ctx=2048,  # TinyLlama was trained on 2048 tokens
     n_threads=os.cpu_count(),
     verbose=False,
 )
@@ -79,11 +80,22 @@ def summarize_report(report: DirectoryReport) -> LLMSummary:
     )
 
     raw_json = response["choices"][0]["message"]["content"]
+    repaired_json = repair_json(raw_json, return_objects=False)
 
     try:
-        return LLMSummary.model_validate_json(raw_json)
+        summary = LLMSummary.model_validate_json(repaired_json)
     except ValidationError as e:
-        # Surface exactly which fields the model got wrong
         raise ValueError(
-            f"Model returned invalid JSON structure.\nRaw output:\n{raw_json}\n\nValidation errors:\n{e}"
+            f"Model returned unrecoverable JSON.\nRaw output:\n{raw_json}\n\nValidation errors:\n{e}"
         ) from e
+
+    # Fill in fields the LLM couldn't reliably produce from real computed data
+    if summary.largest_file == "N/A" and report.files:
+        top = max(report.files, key=lambda f: f.size_kb)
+        summary.largest_file = f"{top.name} ({top.size_kb} KB)"
+
+    if summary.most_common_type == "N/A" and report.breakdown_by_type:
+        ext, count = max(report.breakdown_by_type.items(), key=lambda x: x[1])
+        summary.most_common_type = f"{ext} with {count} file(s)"
+
+    return summary

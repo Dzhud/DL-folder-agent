@@ -28,16 +28,24 @@ class LLMSummary(BaseModel):
     overview: str = Field(description="A 2-3 sentence overview of the Downloads folder contents")
     notable_observations: list[str] = Field(description="Interesting patterns or standout facts about the files")
     recommendations: list[str] = Field(description="Actionable suggestions, e.g. files to delete or organize")
-    largest_file: str = Field(description="Name and size of the largest file")
-    most_common_type: str = Field(description="The most frequently occurring file type and its count")
+    largest_file: str = Field(default="N/A", description="Name and size of the largest file")
+    most_common_type: str = Field(default="N/A", description="The most frequently occurring file type and its count")
 
     @model_validator(mode="before")
     @classmethod
     def _fix_field_aliases(cls, data: Any) -> Any:
         """Tolerate common field-name variations from small LLMs."""
         if isinstance(data, dict):
-            if "large_file" in data and "largest_file" not in data:
-                data["largest_file"] = data.pop("large_file")
-            if "common_type" in data and "most_common_type" not in data:
-                data["most_common_type"] = data.pop("common_type")
+            # largest_file aliases
+            for alt in ("large_file", "large_size", "largest_size", "biggest_file"):
+                if alt in data and "largest_file" not in data:
+                    val = data.pop(alt)
+                    # only use it if it's a meaningful string, not a bare number
+                    data["largest_file"] = str(val) if not isinstance(val, (int, float)) else "N/A"
+                    break
+            # most_common_type aliases
+            for alt in ("common_type", "most_common", "top_type"):
+                if alt in data and "most_common_type" not in data:
+                    data["most_common_type"] = data.pop(alt)
+                    break
         return data
